@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel.Design;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -21,36 +22,62 @@ namespace Manipulation
 
 		public static void KeyDown(Form form, KeyEventArgs key)
 		{
-			// TODO: Добавьте реакцию на QAWS и пересчитывать Wrist
-			form.Invalidate(); // 
+			var angleRotation = Math.PI / 250.0;
+			switch (key.KeyCode)
+			{
+				case Keys.Q:
+					Shoulder += angleRotation;
+					break;
+				case Keys.A:
+					Shoulder -= angleRotation;
+					break;
+				case Keys.W:
+					Elbow += angleRotation;
+					break;
+				case Keys.S:
+					Elbow -= angleRotation;
+					break;
+			}
+
+			Wrist = -(Alpha + Shoulder + Elbow);
+			form.Invalidate();
 		}
 
 
 		public static void MouseMove(Form form, MouseEventArgs e)
 		{
-			// TODO: Измените X и Y пересчитав координаты (e.X, e.Y) в логические.
-
+			var newCoords = ConvertWindowToMath(e.Location, GetShoulderPos(form));
+			X = newCoords.X;
+			Y = newCoords.Y;
 			UpdateManipulator();
 			form.Invalidate();
 		}
 
+		private static float sign(float f) => f > 0 ? 1.0f : (f < 0 ? -1 : 0);
+
 		public static void MouseWheel(Form form, MouseEventArgs e)
 		{
-			// TODO: Измените Alpha, используя e.Delta — размер прокрутки колеса мыши
-
+			Alpha += Math.PI * sign(e.Delta) / 250.0f;
 			UpdateManipulator();
 			form.Invalidate();
 		}
 
 		public static void UpdateManipulator()
 		{
-			// Вызовите ManipulatorTask.MoveManipulatorTo и обновите значения полей Shoulder, Elbow и Wrist, 
-            // если они не NaN. Это понадобится для последней задачи.
+			var angles = ManipulatorTask.MoveManipulatorTo(X, Y, Alpha);
+            if (double.IsNaN(angles[0]) && double.IsNaN(angles[1]) && double.IsNaN(angles[2]))
+	            return;
+            Shoulder = angles[0];
+            Elbow = angles[1];
+            Wrist = angles[2];
 		}
 
 		public static void DrawManipulator(Graphics graphics, PointF shoulderPos)
 		{
-			var joints = AnglesToCoordinatesTask.GetJointPositions(Shoulder, Elbow, Wrist);
+			var joints = new[] {
+					new[] { new PointF(0.0f, 0.0f) },
+					AnglesToCoordinatesTask.GetJointPositions(Shoulder, Elbow, Wrist) }
+				.SelectMany(g => g).ToArray();
 
 			graphics.DrawString(
                 $"X={X:0}, Y={Y:0}, Alpha={Alpha:0.00}", 
@@ -58,11 +85,16 @@ namespace Manipulation
                 Brushes.DarkRed, 
                 10, 
                 10);
-			DrawReachableZone(graphics, ReachableAreaBrush, UnreachableAreaBrush, shoulderPos, joints);
-
-			// Нарисуйте сегменты манипулятора методом graphics.DrawLine используя ManipulatorPen.
-			// Нарисуйте суставы манипулятора окружностями методом graphics.FillEllipse используя JointBrush.
-			// Не забудьте сконвертировать координаты из логических в оконные
+			DrawReachableZone(graphics, ReachableAreaBrush, UnreachableAreaBrush, shoulderPos, joints.Skip(1).ToArray());
+			
+			for (var i = 1; i <= 3; i++)
+				graphics.DrawLine(ManipulatorPen,
+				ConvertMathToWindow(joints[i - 1], shoulderPos), 
+				ConvertMathToWindow(joints[i], shoulderPos));
+			for (var i = 1; i <= 3; i++)
+				graphics.FillEllipse(JointBrush,
+					new RectangleF(ConvertMathToWindow(joints[i], shoulderPos) - new SizeF(5.0f, 5.0f),
+						new SizeF(10.0f, 10.0f)));
 		}
 
 		private static void DrawReachableZone(
@@ -94,6 +126,5 @@ namespace Manipulation
 		{
 			return new PointF(windowPoint.X - shoulderPos.X, shoulderPos.Y - windowPoint.Y);
 		}
-
 	}
 }
